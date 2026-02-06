@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pointage Robotique Centralisé</title>
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, query, onSnapshot, orderBy } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-auth.js";
+
+        // REMPLACEZ LES VALEURS CI-DESSOUS PAR CELLES DE VOTRE CONSOLE FIREBASE
+        const firebaseConfig = {
+            apiKey: "AIzaSyCRfoq0nvgVKRDTrF8jR4sGR7O3tpz6LJI",
+            authDomain: "tournoi-robotique.firebaseapp.com",
+            projectId: "tournoi-robotique",
+            storageBucket: "tournoi-robotique.firebasestorage.app",
+            messagingSenderId: "823293191367",
+            appId: "1:823293191367:web:667f3a455fcd9f5dcc0ae2"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        
+        window.db = db;
+        window.auth = auth;
+
+        // Connexion automatique
+        signInAnonymously(auth).then(() => {
+            console.log("Connecté au Cloud");
+            document.getElementById('sync-indicator').style.background = '#10b981';
+        }).catch(err => {
+            console.error("Erreur de connexion", err);
+            document.getElementById('sync-indicator').style.background = '#ef4444';
+        });
+    </script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --text: #1e293b;
+            --success: #10b981;
+        }
+        body { font-family: sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .card { background: var(--card); border-radius: 12px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+        .tab { flex: 1; padding: 12px; text-align: center; background: #e2e8f0; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .tab.active { background: var(--primary); color: white; }
+        .view { display: none; }
+        .view.active { display: block; }
+        .field { margin-bottom: 15px; }
+        label { display: block; font-size: 0.8rem; margin-bottom: 5px; font-weight: bold; color: #64748b; }
+        input { width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; font-size: 1rem; }
+        .counter-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #f1f5f9; }
+        .controls { display: flex; align-items: center; gap: 15px; }
+        .btn-c { width: 35px; height: 35px; border-radius: 50%; border: none; background: #e2e8f0; font-size: 20px; cursor: pointer; }
+        .btn-c:disabled { opacity: 0.3; }
+        .score-box { background: var(--primary); color: white; padding: 20px; border-radius: 12px; text-align: center; margin-top: 20px; }
+        .btn-save { width: 100%; padding: 18px; border-radius: 12px; border: none; background: var(--success); color: white; font-size: 1.1rem; font-weight: bold; margin-top: 15px; cursor: pointer; }
+        .sync { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; margin-bottom: 10px; }
+        #sync-indicator { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; }
+        .team-res { border: 1px solid #e2e8f0; padding: 10px; border-radius: 8px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="sync"><div id="sync-indicator"></div> Liaison Cloud</div>
+    
+    <div class="tabs">
+        <div class="tab active" onclick="showTab('saisie')">Saisie</div>
+        <div class="tab" onclick="showTab('resultats')">Classement</div>
+    </div>
+
+    <div id="view-saisie" class="view active">
+        <div class="card">
+            <div class="field">
+                <label>Nom du Tournoi (Session)</label>
+                <input type="text" id="session" value="tournoi-test">
+            </div>
+            <div style="display:flex; gap:10px">
+                <div class="field" style="flex:1">
+                    <label>Équipe #</label>
+                    <input type="number" id="team">
+                </div>
+                <div class="field" style="flex:1">
+                    <label>Match #</label>
+                    <input type="number" id="match">
+                </div>
+            </div>
+
+            <h4 style="margin: 20px 0 10px 0; border-bottom: 2px solid var(--primary)">Moteurs & Pièces (Max 21 total)</h4>
+            <div id="moteurs"></div>
+            <div class="counter-row">
+                <span>Pièces Supp.</span>
+                <div class="controls">
+                    <button class="btn-c" onclick="change('supp', -1)">-</button>
+                    <b id="supp-v">0</b>
+                    <button class="btn-c" id="supp-p" onclick="change('supp', 1)">+</button>
+                </div>
+            </div>
+
+            <div class="score-box">
+                <small>SCORE ESTIMÉ</small><br>
+                <span style="font-size: 2.5rem; font-weight: 800;" id="total">0</span>
+            </div>
+            <button class="btn-save" id="save-btn" onclick="save()">ENREGISTRER LE MATCH</button>
+        </div>
+    </div>
+
+    <div id="view-resultats" class="view">
+        <div class="card" id="res-list">
+            Chargement des données...
+        </div>
+    </div>
+</div>
+
+<script>
+    let state = { m1:0, m2:0, m3:0, m4:0, m5:0, m6:0, supp:0 };
+    
+    // Générer moteurs
+    const motDiv = document.getElementById('moteurs');
+    for(let i=1; i<=6; i++) {
+        motDiv.innerHTML += `
+            <div class="counter-row">
+                <span>Moteur ${i}</span>
+                <div class="controls">
+                    <button class="btn-c" onclick="change('m${i}', -1)">-</button>
+                    <b id="m${i}-v">0</b>
+                    <button class="btn-c" id="m${i}-p" onclick="change('m${i}', 1)">+</button>
+                </div>
+            </div>
+        `;
+    }
+
+    function change(key, delta) {
+        const total = Object.values(state).reduce((a,b)=>a+b, 0);
+        if(delta > 0 && total >= 21) return;
+        if(delta > 0 && key.startsWith('m') && state[key] >= 3) return;
+        
+        let nv = state[key] + delta;
+        if(nv >= 0) {
+            state[key] = nv;
+            document.getElementById(key+'-v').innerText = nv;
+            updateUI();
+        }
+    }
+
+    function updateUI() {
+        const totalUsed = Object.values(state).reduce((a,b)=>a+b, 0);
+        const isFull = totalUsed >= 21;
+        
+        for(let i=1; i<=6; i++) {
+            document.getElementById(`m${i}-p`).disabled = isFull || state[`m${i}`] >= 3;
+        }
+        document.getElementById('supp-p').disabled = isFull;
+
+        // Calcul score
+        let pts = 0;
+        for(let i=1; i<=6; i++) {
+            let v = state[`m${i}`];
+            pts += (v==1?50 : v==2?100 : v==3?250 : 0);
+        }
+        pts += (state.supp * 40);
+        document.getElementById('total').innerText = pts;
+    }
+
+    async function save() {
+        const t = document.getElementById('team').value;
+        const m = document.getElementById('match').value;
+        const s = document.getElementById('session').value;
+        if(!t || !m) return alert("Équipe et Match requis !");
+
+        const btn = document.getElementById('save-btn');
+        btn.disabled = true;
+        btn.innerText = "Envoi...";
+
+        try {
+            const { addDoc, collection } = await import("https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js");
+            // RÈGLE 1 : /artifacts/{appId}/public/data/{collection}
+            const path = `artifacts/robotique-pro/public/data/${s}`;
+            await addDoc(collection(window.db, path), {
+                team: t, match: m, score: parseInt(document.getElementById('total').innerText),
+                at: Date.now()
+            });
+            alert("Match Sauvegardé !");
+            location.reload(); 
+        } catch(e) {
+            alert("Erreur: " + e.message);
+            btn.disabled = false;
+        }
+    }
+
+    function showTab(v) {
+        document.querySelectorAll('.tab, .view').forEach(el => el.classList.remove('active'));
+        document.getElementById('view-'+v).classList.add('active');
+        document.querySelector(`.tab[onclick*="${v}"]`).classList.add('active');
+        if(v == 'resultats') loadRes();
+    }
+
+    let unsub = null;
+    async function loadRes() {
+        if(unsub) unsub();
+        const s = document.getElementById('session').value;
+        const { collection, query, onSnapshot, orderBy } = await import("https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js");
+        
+        const q = query(collection(window.db, `artifacts/robotique-pro/public/data/${s}`));
+        unsub = onSnapshot(q, (snap) => {
+            const container = document.getElementById('res-list');
+            container.innerHTML = "<h3>Classement direct</h3>";
+            let teams = {};
+            snap.forEach(doc => {
+                const d = doc.data();
+                if(!teams[d.team]) teams[d.team] = [];
+                teams[d.team].push(d);
+            });
+
+            Object.keys(teams).sort((a,b)=>parseInt(a)-parseInt(b)).forEach(id => {
+                const total = teams[id].reduce((sum, m) => sum + m.score, 0);
+                container.innerHTML += `
+                    <div class="team-res">
+                        <b>Équipe ${id}</b> : ${total} pts (${teams[id].length} matchs)
+                    </div>
+                `;
+            });
+        });
+    }
+</script>
+</body>
+</html>
